@@ -85,7 +85,7 @@ class Provider:
         payload = {
             "model": self.model,
             "messages": messages,
-            "max_tokens": int(os.getenv("MAX_TOKENS", "800")),
+            "max_tokens": int(os.getenv("MAX_TOKENS", "1536")),
         }
         if schemas:
             payload["tools"] = schemas
