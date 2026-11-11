@@ -15,15 +15,23 @@ CONFIG = {
 def post_json(url, headers, payload):
     import time
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json', **headers})
-    for attempt in range(6):
+    for attempt in range(8):
         try:
             with urllib.request.urlopen(req, timeout=60) as response:
-                return json.load(response)
+                data = json.load(response)
+                time.sleep(1.5)  # Tránh nghẽn in-flight quota trên OpenRouter
+                return data
         except urllib.error.HTTPError as exc:
-            if attempt < 5 and (exc.code in (429, 502, 503, 504) or exc.code == 402):
+            body = ''
+            try:
+                body = exc.read().decode('utf-8', errors='ignore')
+            except Exception:
+                pass
+            is_in_flight = 'in_flight_budget' in body or 'Retry-After' in str(exc.headers)
+            if attempt < 7 and (exc.code in (429, 502, 503, 504) or (exc.code == 402 and is_in_flight)):
                 retry_after = exc.headers.get('Retry-After')
-                wait_sec = int(retry_after) if retry_after and retry_after.isdigit() else 3 * (attempt + 1)
-                time.sleep(min(wait_sec, 10))
+                wait_sec = int(retry_after) if retry_after and retry_after.isdigit() else (5 * (attempt + 1))
+                time.sleep(min(wait_sec, 25))
                 continue
             # Do not print response bodies: they may contain account or request data.
             raise RuntimeError(f'Provider trả HTTP {exc.code}; kiểm tra model, key và quota.') from exc
@@ -51,7 +59,7 @@ class Provider:
     def complete(self, messages, schemas):
         if self.name == 'anthropic':
             return self._anthropic(messages, schemas)
-        payload = {'model': self.model, 'messages': messages, 'max_tokens': int(os.getenv('MAX_TOKENS', '2048'))}
+        payload = {'model': self.model, 'messages': messages, 'max_tokens': int(os.getenv('MAX_TOKENS', '800'))}
         if schemas:
             payload['tools'] = schemas
         data = post_json(self.url, {'Authorization': f'Bearer {self.key}'}, payload)
